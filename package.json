@@ -1,0 +1,19 @@
+{
+  "name": "mastra-durable-resume-repro",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "suspend": "tsx 1-suspend.ts",
+    "resume": "tsx 2-resume.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "3.0.78",
+    "@mastra/ai-sdk": "1.4.5",
+    "@mastra/core": "1.42.0",
+    "@mastra/memory": "1.20.3",
+    "@mastra/pg": "1.13.0",
+    "pg": "8.21.0",
+    "tsx": "4.22.3",
+    "zod": "4.3.6"
+  }
+}
