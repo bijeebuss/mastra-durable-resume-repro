@@ -13,6 +13,7 @@ const result = await agent.stream(
     runId: RUN_ID,
     requestContext,
     memory: { thread: THREAD_ID, resource: RESOURCE_ID },
+    toolChoice: "required", // force the tool call so the run deterministically suspends
     onSuspended: () => console.log("onSuspended fired"),
   },
 )
