@@ -22,7 +22,9 @@ const dangerTool = createTool({
   inputSchema: z.object({ note: z.string() }),
   outputSchema: z.object({ result: z.string() }),
   requireApproval: true,
-  execute: async ({ context }: any) => ({ result: `EXECUTED with note: ${context?.note}` }),
+  // Mastra calls execute(validatedInput, context) — the tool input is the FIRST
+  // positional arg (context is the second). Read `note` off the input.
+  execute: async ({ note }: { note: string }) => ({ result: `EXECUTED with note: ${note}` }),
 })
 
 const baseAgent = new Agent({

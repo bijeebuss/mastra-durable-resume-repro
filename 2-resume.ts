@@ -15,32 +15,34 @@ try {
 const prep = await agent.prepare([], { runId: RUN_ID, requestContext, memory: { thread: THREAD_ID, resource: RESOURCE_ID } })
 
 if (prep.runId !== RUN_ID) {
-  // ---- GAP 1 ---------------------------------------------------------------
-  console.log(`\nGAP 1: prepare() ignored the requested runId.`)
+  // ---- THE BUG -------------------------------------------------------------
+  console.log(`\nBUG: prepare() ignored the requested runId.`)
   console.log(`  requested: ${RUN_ID}`)
   console.log(`  got:       ${prep.runId}`)
   console.log(`  => a follow-up resume(${RUN_ID}) still can't find the registry.`)
   console.log(`\n  Fix: in node_modules/@mastra/core/dist/agent/durable/index.js, prepare()`)
   console.log(`  passes options to prepareForDurableExecution but omits runId (stream() includes it).`)
-  console.log(`  Add  runId: options?.runId,  then re-run 1-suspend.ts and 2-resume.ts to see Gap 2.`)
+  console.log(`  Add  runId: options?.runId,  then re-run 1-suspend.ts and 2-resume.ts.`)
+  console.log(`  Upstream fix: https://github.com/mastra-ai/mastra/pull/18113`)
   process.exit(0)
 }
 
-// ---- GAP 2 (only reached once Gap 1 is patched) ----------------------------
+// ---- Patched: prepare() honored runId — resume across the restart ----------
 console.log("\nprepare() honored runId (patch applied). resume()...")
 const result = await agent.resume(RUN_ID, { approved: true }, { onFinish: () => console.log(">> onFinish") })
 
-let toolOk = false
+let toolResult: string | undefined
 for await (const part of toAISdkStream(result.output, { from: "agent", version: "v6" } as any)) {
   const t = (part as any).type
   if (t === "tool-output-error") {
-    console.log("GAP 2: the approved tool failed with undefined args:")
-    console.log("  ", (part as any).errorText)
-    console.log("  (the args are in the persisted snapshot's suspendPayload.args, but they")
-    console.log("   are not restored into the tool step on a cold/rehydrated resume.)")
+    console.log("tool errored:", (part as any).errorText)
   }
-  if (t === "tool-output-available" || t === "tool-result") toolOk = true
+  if (t === "tool-output-available" || t === "tool-result") {
+    toolResult = JSON.stringify((part as any).result ?? (part as any).output)
+  }
   if (t === "finish") break
 }
-console.log("\nresult: tool executed correctly =", toolOk)
+// The approved tool runs with its original args restored from the persisted
+// snapshot — e.g. result: { result: "EXECUTED with note: <the persisted note>" }.
+console.log("\nresult: approved tool output =", toolResult)
 process.exit(0)

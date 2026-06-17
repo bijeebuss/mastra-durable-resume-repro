@@ -3,9 +3,19 @@
 `@mastra/core@1.42.0`. A durable `EventedAgent` run that suspends on tool
 approval cannot be resumed once the in-memory run registry is gone (idle
 eviction, or a process restart) — even though the **full workflow snapshot,
-including the suspended tool's args, is durably persisted** to storage. Two gaps
-in the durable-agent layer block resuming a persisted suspended run from a cold
-process.
+including the suspended tool's args, is durably persisted** to storage.
+
+The blocker is a single bug: **`prepare()` ignores `options.runId`**, so it can't
+be used to rehydrate a known run id before resuming.
+
+> **Note (resolved):** An earlier version of this repro also claimed a second
+> gap — "the suspended tool's args are dropped on cold resume." That was a bug
+> in *this repo's tool*, not in Mastra. The tool read `context.note` from its
+> first `execute` argument, but Mastra calls `execute(validatedInput, context)`
+> (the tool input is the first positional arg). So `note` was always `undefined`,
+> warm or cold. Reading the input correctly (`execute: async ({ note }) => …`)
+> fixes it: the args are in fact persisted **and** restored across a restart.
+> This repo now reads the input correctly, leaving only the real `prepare()` bug.
 
 ## Run
 
@@ -29,7 +39,7 @@ to `mastra_workflow_snapshot` for both the inner `durable-agentic-execution` and
 outer `durable-agentic-loop` workflows, with `suspendPayload.args` containing the
 tool args. So everything needed to resume is on disk.
 
-## Gap 1 — `prepare()` ignores `options.runId`
+## The bug — `prepare()` ignores `options.runId`
 
 `2-resume.ts` shows that `resume(runId)` throws
 `No registry entry found for run … Cannot resume.` (the registry built by the
@@ -54,28 +64,12 @@ const preparation = await prepareForDurableExecution({
 (`prepareForDurableExecution` does `const runId = providedRunId ?? crypto.randomUUID()`,
 so without the forward it always mints a new id.)
 
-After applying that one-line patch, re-run `1-suspend.ts` then `2-resume.ts`:
-now `prepare()` registers the correct runId, `resume()` **loads the durable
-snapshot and resumes the workflow across the restart** — but you hit Gap 2.
+With that one-line patch, `prepare()` registers the correct runId, `resume()`
+**loads the durable snapshot and resumes the workflow across the restart**, and
+the approved tool executes with its original args restored from
+`suspendPayload.args`.
 
-## Gap 2 — rehydrated resume drops the suspended tool's args
+## Upstream
 
-With Gap 1 patched, the approved tool executes with **undefined args**:
-
-```
-Error: Cannot read properties of undefined (reading 'note')
-  at .../agent/durable/index.js   // const cleanedArgs = { ...args };  (args is undefined)
-```
-
-The args are in the persisted snapshot (`1-suspend.ts` prints
-`suspendPayload.args = { "note": "…" }`), but they are not restored into the tool
-step on a cold/rehydrated resume. In an in-process resume the args survive
-because the step state is still in memory; from a fresh process they're dropped.
-
-## Expected
-
-Resuming a persisted, suspended durable run after a restart should rehydrate the
-registry from the agent + a fresh request context and resume from the durable
-snapshot, with the suspended tool's args restored from `suspendPayload.args`.
-Either fix `prepare()` (forward `runId`) **and** restore the args on cold resume,
-or add a dedicated "resume a persisted run by id" API that does both.
+- Issue: https://github.com/mastra-ai/mastra/issues/18031
+- Fix PR: https://github.com/mastra-ai/mastra/pull/18113
